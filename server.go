@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/rpc"
+	"os"
 	"os/exec"
 	"sync"
 
@@ -65,12 +67,19 @@ func MulMatrix(a, b *Matrix) (*Matrix, error) {
 			log.Fatal(err)
 		}
 
-		args := &MulRowArgs{Row: a.Data[i], Matrix: b}   // create the arguments for the MulRow rpc method
-		var reply []float64                              // create a slice to store the reply from the MulRow rpc method
+		args := &MulRowArgs{
+			Row:  a.Data[i],
+			Rows: b.Rows,
+			Cols: b.Cols,
+			Data: b.Data,
+		} // create the arguments for the MulRow rpc method
+		var reply []float64 // create a slice to store the reply from the MulRow rpc method
+		fmt.Println("args ", *args)
 		err = client.Call("Worker.MulRow", args, &reply) // call the MulRow rpc method and store the result in reply
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Println(reply)
 
 		mu.Lock()
 		if reply != nil {
@@ -97,17 +106,19 @@ type Worker struct{}
 
 // MulRowArgs is a struct that holds the arguments for the MulRow rpc method
 type MulRowArgs struct {
-	Row    []float64 // the row vector to multiply by a matrix
-	Matrix *Matrix   // the matrix to multiply by the row vector
+	Row  []float64 // the row vector to multiply by a matrix
+	Rows int
+	Cols int
+	Data [][]float64
 }
 
 // MulRow is an rpc method that multiplies a row vector by a matrix and returns the result as a slice of float64
 func (w *Worker) MulRow(args *MulRowArgs, reply *[]float64) error {
-	res := make([]float64, args.Matrix.Cols)
-	for j := 0; j < args.Matrix.Cols; j++ {
+	res := make([]float64, args.Cols)
+	for j := 0; j < args.Cols; j++ {
 		sum := 0.0
-		for k := 0; k < args.Matrix.Rows; k++ {
-			sum += args.Row[k] * args.Matrix.Data[k][j]
+		for k := 0; k < args.Rows; k++ {
+			sum += args.Row[k] * args.Data[k][j]
 		}
 		res[j] = sum
 
@@ -182,12 +193,15 @@ func mulMatrixHandler(w http.ResponseWriter, r *http.Request) {
 			Data: data.MatrixB,
 		}
 
+		fmt.Println(a)
+		fmt.Println(b)
 		// Multiply the matrices using MulMatrix function
 		c, err := MulMatrix(a, b)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		fmt.Println(c)
 
 		// Convert the result matrix to a slice
 		result := c.Data
@@ -212,6 +226,7 @@ func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	// Create an instance of MatrixData with some sample data
+	logger := log.New(os.Stdout, "", log.Ltime)
 
 	myHandler := &MyHandler{}
 
@@ -225,15 +240,37 @@ func main() {
 
 	// Start 8 worker processes using exec.Command and exec.Start
 	for i := 0; i < 8; i++ {
-		cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker", fmt.Sprintf("%d", 9000+i)) // create a command with the port number as argument
-		err := cmd.Start()                                                                // start the command as a new process
-		if err != nil {
-			log.Fatal(err)
-		}
+		go func(port int) {
+			fmt.Println("port is ", 9000+port)
+			cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker.exe", fmt.Sprintf("%d", 9000+port)) // create a command with the port number as argument
+			stdout, _ := cmd.StdoutPipe()
+			go handleSTDOUT(stdout)
+			err := cmd.Start() // start the command as a new process
+			if err != nil {
+				logger.Fatal(err)
+			}
+
+			err = cmd.Wait()
+			if err != nil {
+				logger.Fatal(err)
+			}
+		}(i)
 	}
 
 	// Start the server and listen on port 9090
-	log.Println("Starting server on port 9090")
+	logger.Println("Starting server on port 9090")
 	err := http.ListenAndServe(":9090", mux)
-	log.Fatal(err)
+	logger.Fatal(err)
+}
+
+func handleSTDOUT(closer io.ReadCloser) {
+	b := make([]byte, 1000)
+	for {
+		nr, e := closer.Read(b)
+		fmt.Println("from worker: ", string(b[:nr]))
+		if e != nil {
+			fmt.Println(e)
+			return
+		}
+	}
 }

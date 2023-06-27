@@ -14,8 +14,10 @@ type Worker struct{}
 
 // MulRowArgs is a struct that holds the arguments for the MulRow rpc method
 type MulRowArgs struct {
-	Row    []float64 // the row vector to multiply by a matrix
-	Matrix *Matrix   // the matrix to multiply by the row vector
+	Row  []float64 // the row vector to multiply by a matrix
+	Rows int
+	Cols int
+	Data [][]float64 // the matrix to multiply by the row vector
 }
 
 // Matrix represents a 2D matrix of float64 values
@@ -27,15 +29,17 @@ type Matrix struct {
 
 // MulRow is an rpc method that multiplies a row vector by a matrix and returns the result as a slice of float64
 func (w *Worker) MulRow(args *MulRowArgs, reply *[]float64) error {
-	res := make([]float64, args.Matrix.cols)
-	for j := 0; j < args.Matrix.cols; j++ {
+	res := make([]float64, args.Cols)
+	fmt.Println("got data ", *args, args)
+	for j := 0; j < args.Cols; j++ {
 		sum := 0.0
-		for k := 0; k < args.Matrix.rows; k++ {
-			sum += args.Row[k] * args.Matrix.data[k][j]
+		for k := 0; k < args.Rows; k++ {
+			sum += args.Row[k] * args.Data[k][j]
 		}
 		res[j] = sum
 
 	}
+	fmt.Println("res is ", res)
 	*reply = res // set the reply pointer to point to the result slice
 
 	return nil
