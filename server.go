@@ -225,70 +225,30 @@ func main() {
 
 	numWorkers := 8
 
-	setNumWorkers := func(newNumWorkers int) {
-		// in the main function
-		numWorkers := 8
-		workerCmds := make([]*exec.Cmd, 0, numWorkers)
+	workerCmds := make([]*exec.Cmd, 0, numWorkers)
 
-		setNumWorkers := func(newNumWorkers int) {
-			if newNumWorkers > numWorkers {
-				for i := numWorkers; i < newNumWorkers; i++ {
-					cmd := exec.Command("worker.exe", fmt.Sprintf("%d", 9000+i))
-					stdout, _ := cmd.StdoutPipe()
-					go handleSTDOUT(stdout)
-					err := cmd.Start()
-					if err != nil {
-						logger.Fatal(err)
-					}
-					workerCmds = append(workerCmds, cmd)
+	setNumWorkers := func(newNumWorkers int) {
+		if newNumWorkers > numWorkers {
+			for i := numWorkers; i < newNumWorkers; i++ {
+				cmd := exec.Command("worker.exe", fmt.Sprintf("%d", 9000+i))
+				stdout, _ := cmd.StdoutPipe()
+				go handleSTDOUT(stdout)
+				err := cmd.Start()
+				if err != nil {
+					logger.Fatal(err)
 				}
-			} else if newNumWorkers < numWorkers {
-				for i := newNumWorkers; i < numWorkers; i++ {
+				workerCmds = append(workerCmds, cmd)
+			}
+		} else if newNumWorkers < numWorkers {
+			for i := newNumWorkers; i < numWorkers; i++ {
+				if i < len(workerCmds) {
 					cmd := workerCmds[i]
 					cmd.Process.Signal(os.Interrupt)
 					workerCmds[i] = nil
 				}
-				workerCmds = workerCmds[:newNumWorkers]
 			}
-			numWorkers = newNumWorkers
+			workerCmds = workerCmds[:newNumWorkers]
 		}
-
-		setNumWorkersHandler := func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "POST" {
-				body, err := ioutil.ReadAll(r.Body)
-				if err != nil {
-					http.Error(w, "Bad request", http.StatusBadRequest)
-					return
-				}
-
-				newNumWorkers, err := strconv.Atoi(string(body))
-				if err != nil || newNumWorkers < 1 || newNumWorkers > 64 {
-					http.Error(w, "Invalid value for numWorkers", http.StatusBadRequest)
-					return
-				}
-
-				setNumWorkers(newNumWorkers)
-
-				fmt.Fprintf(w, "Number of workers set to %d\n", newNumWorkers)
-
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		}
-
-		mux.HandleFunc("/setnumworkers", setNumWorkersHandler)
-
-		for i := 0; i < numWorkers; i++ {
-			cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker.exe", fmt.Sprintf("%d", 9000+i))
-			stdout, _ := cmd.StdoutPipe()
-			go handleSTDOUT(stdout)
-			err := cmd.Start()
-			if err != nil {
-				logger.Fatal(err)
-			}
-			workerCmds = append(workerCmds, cmd)
-		}
-
 		numWorkers = newNumWorkers
 	}
 

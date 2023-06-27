@@ -15,6 +15,40 @@ type MatrixData struct {
 }
 
 func main() {
+
+	//---------------
+	// Set the new number of workers
+	newNumWorkers := "4"
+
+	// Create a HTTP POST request with the new number of workers as the body
+	url := "http://localhost:9090/setnumworkers"
+	req, err := http.NewRequest("POST", url, bytes.NewBufferString(newNumWorkers))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create a HTTP client and send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Check the status code of the response
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("Server returned error: %s", resp.Status)
+	}
+
+	// Read the response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Print the response body
+	fmt.Println(string(body))
+
 	// Create an instance of MatrixData with some sample data
 	data := MatrixData{
 		MatrixA: [][]float64{
@@ -35,8 +69,8 @@ func main() {
 	}
 
 	// Create a HTTP POST request with the JSON data as the body
-	url := "http://localhost:9090/mulmatrix"
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	url = "http://localhost:9090/mulmatrix"
+	req, err = http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,8 +79,8 @@ func main() {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Create a HTTP client and send the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	client = &http.Client{}
+	resp, err = client.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -58,7 +92,7 @@ func main() {
 	}
 
 	// Read the response body
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
