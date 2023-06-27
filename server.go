@@ -10,6 +10,7 @@ import (
 	"net/rpc"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 
 	"golang.org/x/sync/semaphore"
@@ -48,21 +49,21 @@ func (m *Matrix) Print() {
 }
 
 // MulMatrix multiplies two matrices using rpc calls to workers
-func MulMatrix(a, b *Matrix) (*Matrix, error) {
+func MulMatrix(a, b *Matrix, numWorkers int) (*Matrix, error) {
 	if a.Cols != b.Rows {
 		return nil, fmt.Errorf("incompatible matrix dimensions: %dx%d and %dx%d", a.Rows, a.Cols, b.Rows, b.Cols)
 	}
 	c := NewMatrix(a.Rows, b.Cols)
-	var wg sync.WaitGroup           // to wait for all workers to finish
-	var mu sync.Mutex               // to protect access to the result matrix
-	sem := semaphore.NewWeighted(4) // to limit the number of active workers
+	var wg sync.WaitGroup                           // to wait for all workers to finish
+	var mu sync.Mutex                               // to protect access to the result matrix
+	sem := semaphore.NewWeighted(int64(numWorkers)) // to limit the number of active workers
 
 	// create a worker function that computes one row of the result matrix
 	worker := func(i int) {
 		defer wg.Done()      // decrement the wait group counter
 		defer sem.Release(1) // release the semaphore
 
-		client, err := rpc.DialHTTP("tcp", fmt.Sprintf("localhost:%d", 9000+i)) // connect to the worker rpc server
+		client, err := rpc.DialHTTP("tcp", fmt.Sprintf("localhost:%d", 9000+i%numWorkers)) // connect to the worker rpc server
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -129,21 +130,18 @@ func (w *Worker) MulRow(args *MulRowArgs, reply *[]float64) error {
 
 }
 
-// matrixHandler handles the requests for getting the matrices
 func matrixHandler(w http.ResponseWriter, r *http.Request) {
 	// Check if the request method is POST
 	if r.Method == "POST" {
-		// Create an instance of MatrixData
+
 		var data MatrixData
 
-		// Read the request body and store it in a byte slice
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
 
-		// Parse the JSON data and store it in data
 		err = json.Unmarshal(body, &data)
 		if err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -160,62 +158,56 @@ func matrixHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // mulMatrixHandler handles the requests for multiplying the matrices
-func mulMatrixHandler(w http.ResponseWriter, r *http.Request) {
-	// Check if the request method is POST
-	if r.Method == "POST" {
-		// Create an instance of MatrixData
-		var data MatrixData
+func mulMatrixHandler(numWorkers int) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			var data MatrixData
 
-		// Read the request body and store it in a byte slice
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "Bad request", http.StatusBadRequest)
-			return
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			err = json.Unmarshal(body, &data)
+			if err != nil {
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+				return
+			}
+
+			a := &Matrix{
+				Rows: len(data.MatrixA),
+				Cols: len(data.MatrixA[0]),
+				Data: data.MatrixA,
+			}
+
+			b := &Matrix{
+				Rows: len(data.MatrixB),
+				Cols: len(data.MatrixB[0]),
+				Data: data.MatrixB,
+			}
+
+			fmt.Println(a)
+			fmt.Println(b)
+			c, err := MulMatrix(a, b, numWorkers)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			fmt.Println(c)
+
+			result := c.Data
+
+			w.Header().Set("Content-Type", "application/json")
+			err = json.NewEncoder(w).Encode(result)
+			if err != nil {
+				http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
+				return
+			}
+
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
-
-		// Parse the JSON data and store it in data
-		err = json.Unmarshal(body, &data)
-		if err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-
-		// Convert the slices to Matrix structs
-		a := &Matrix{
-			Rows: len(data.MatrixA),
-			Cols: len(data.MatrixA[0]),
-			Data: data.MatrixA,
-		}
-
-		b := &Matrix{
-			Rows: len(data.MatrixB),
-			Cols: len(data.MatrixB[0]),
-			Data: data.MatrixB,
-		}
-
-		fmt.Println(a)
-		fmt.Println(b)
-		// Multiply the matrices using MulMatrix function
-		c, err := MulMatrix(a, b)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		fmt.Println(c)
-
-		// Convert the result matrix to a slice
-		result := c.Data
-
-		// Encode the result slice to JSON and send it to the response writer
-		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(result)
-		if err != nil {
-			http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
-			return
-		}
-
-	} else {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -225,27 +217,115 @@ func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Create an instance of MatrixData with some sample data
 	logger := log.New(os.Stdout, "", log.Ltime)
 
 	myHandler := &MyHandler{}
 
-	// Use a server mux to handle multiple routes
 	mux := http.NewServeMux()
 
-	// Register the handler functions with the mux
-	mux.HandleFunc("/matrix", matrixHandler)       // Handle requests for getting the matrices
-	mux.HandleFunc("/mulmatrix", mulMatrixHandler) // Handle requests for multiplying the matrices
-	mux.Handle("/", myHandler)                     // Use the struct as a handler
+	numWorkers := 8
 
-	// Start 8 worker processes using exec.Command and exec.Start
-	for i := 0; i < 8; i++ {
-		go func(port int) {
-			fmt.Println("port is ", 9000+port)
-			cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker.exe", fmt.Sprintf("%d", 9000+port)) // create a command with the port number as argument
+	setNumWorkers := func(newNumWorkers int) {
+		// in the main function
+		numWorkers := 8
+		workerCmds := make([]*exec.Cmd, 0, numWorkers)
+
+		setNumWorkers := func(newNumWorkers int) {
+			if newNumWorkers > numWorkers {
+				for i := numWorkers; i < newNumWorkers; i++ {
+					cmd := exec.Command("worker.exe", fmt.Sprintf("%d", 9000+i))
+					stdout, _ := cmd.StdoutPipe()
+					go handleSTDOUT(stdout)
+					err := cmd.Start()
+					if err != nil {
+						logger.Fatal(err)
+					}
+					workerCmds = append(workerCmds, cmd)
+				}
+			} else if newNumWorkers < numWorkers {
+				for i := newNumWorkers; i < numWorkers; i++ {
+					cmd := workerCmds[i]
+					cmd.Process.Signal(os.Interrupt)
+					workerCmds[i] = nil
+				}
+				workerCmds = workerCmds[:newNumWorkers]
+			}
+			numWorkers = newNumWorkers
+		}
+
+		setNumWorkersHandler := func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == "POST" {
+				body, err := ioutil.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, "Bad request", http.StatusBadRequest)
+					return
+				}
+
+				newNumWorkers, err := strconv.Atoi(string(body))
+				if err != nil || newNumWorkers < 1 || newNumWorkers > 64 {
+					http.Error(w, "Invalid value for numWorkers", http.StatusBadRequest)
+					return
+				}
+
+				setNumWorkers(newNumWorkers)
+
+				fmt.Fprintf(w, "Number of workers set to %d\n", newNumWorkers)
+
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		}
+
+		mux.HandleFunc("/setnumworkers", setNumWorkersHandler)
+
+		for i := 0; i < numWorkers; i++ {
+			cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker.exe", fmt.Sprintf("%d", 9000+i))
 			stdout, _ := cmd.StdoutPipe()
 			go handleSTDOUT(stdout)
-			err := cmd.Start() // start the command as a new process
+			err := cmd.Start()
+			if err != nil {
+				logger.Fatal(err)
+			}
+			workerCmds = append(workerCmds, cmd)
+		}
+
+		numWorkers = newNumWorkers
+	}
+
+	setNumWorkersHandler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Bad request", http.StatusBadRequest)
+				return
+			}
+
+			newNumWorkers, err := strconv.Atoi(string(body))
+			if err != nil || newNumWorkers < 1 || newNumWorkers > 64 {
+				http.Error(w, "Invalid value for numWorkers", http.StatusBadRequest)
+				return
+			}
+
+			setNumWorkers(newNumWorkers)
+
+			fmt.Fprintf(w, "Number of workers set to %d\n", newNumWorkers)
+
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+
+	mux.HandleFunc("/matrix", matrixHandler)
+	mux.HandleFunc("/mulmatrix", mulMatrixHandler(numWorkers))
+	mux.Handle("/", myHandler)
+	mux.HandleFunc("/setnumworkers", setNumWorkersHandler)
+
+	for i := 0; i < numWorkers; i++ {
+		go func(port int) {
+			cmd := exec.Command("F:\\Programmig\\Go\\HW2\\worker.exe", fmt.Sprintf("%d", 9000+port))
+			stdout, _ := cmd.StdoutPipe()
+			go handleSTDOUT(stdout)
+			err := cmd.Start()
 			if err != nil {
 				logger.Fatal(err)
 			}
@@ -257,7 +337,6 @@ func main() {
 		}(i)
 	}
 
-	// Start the server and listen on port 9090
 	logger.Println("Starting server on port 9090")
 	err := http.ListenAndServe(":9090", mux)
 	logger.Fatal(err)
@@ -266,11 +345,10 @@ func main() {
 func handleSTDOUT(closer io.ReadCloser) {
 	b := make([]byte, 1000)
 	for {
-		nr, e := closer.Read(b)
-		fmt.Println("from worker: ", string(b[:nr]))
-		if e != nil {
-			fmt.Println(e)
+		nr, err := closer.Read(b)
+		if err != nil {
 			return
 		}
+		fmt.Print(string(b[:nr]))
 	}
 }
