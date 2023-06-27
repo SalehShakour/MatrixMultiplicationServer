@@ -15,19 +15,14 @@ type MatrixData struct {
 }
 
 func main() {
-
-	//---------------
-	// Set the new number of workers
 	newNumWorkers := "4"
 
-	// Create a HTTP POST request with the new number of workers as the body
 	url := "http://localhost:9090/setnumworkers"
 	req, err := http.NewRequest("POST", url, bytes.NewBufferString(newNumWorkers))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Create a HTTP client and send the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -35,20 +30,18 @@ func main() {
 	}
 	defer resp.Body.Close()
 
-	// Check the status code of the response
 	if resp.StatusCode != http.StatusOK {
 		log.Fatalf("Server returned error: %s", resp.Status)
 	}
 
-	// Read the response body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Print the response body
 	fmt.Println(string(body))
 
+	//--------------------------------------
 	// Create an instance of MatrixData with some sample data
 	data := MatrixData{
 		MatrixA: [][]float64{
