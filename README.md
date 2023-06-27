@@ -20,7 +20,7 @@ To use the Matrix Multiplication Server, you need to send an HTTP POST request t
 
 For example, here is a sample request that multiplies two matrices:
 
-```
+```sh
 curl -X POST -H "Content-Type: application/json" -d '{"matrixA": [[1, 2], [3, 4]], "matrixB": [[5, 6], [7, 8]]}' http://localhost:9090/mulmatrix
 ```
 And here is the response from the server:
