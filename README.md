@@ -6,13 +6,14 @@ This repository contains two branches: one that implements the workers using RPC
 
 ## Branches
 
+### Thread-Semaphore
+
+The `Thread-Semaphore` branch contains an updated version of the project, which uses threads and semaphores instead of RPC. In this version, the server launches a specified number of worker threads and uses a semaphore to limit the number of active threads at any given time.
+
 ### RPC
 
 The `RPC` branch contains the original implementation of the project, which uses RPC to communicate with the worker processes. In this version, the server launches a specified number of worker processes and uses RPC to distribute the multiplication tasks among them.
 
-### Thread-Semaphore
-
-The `Thread-Semaphore` branch contains an updated version of the project, which uses threads and semaphores instead of RPC. In this version, the server launches a specified number of worker threads and uses a semaphore to limit the number of active threads at any given time.
 
 ## Usage
 
